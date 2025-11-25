@@ -73,7 +73,7 @@ export default defineConfig(({
             dest: "./i18n/",
           },
           {
-            src: "./draw/",
+            src: "./drawnix-embed/",
             dest: "./",
           }
         ],

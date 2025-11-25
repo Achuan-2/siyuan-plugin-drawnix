@@ -1,7 +1,7 @@
 {
-  "name": "siyuan-embed-drawio",
+  "name": "siyuan-embed-drawnix",
   "author": "Yuxin Zhao",
-  "url": "https://github.com/YuxinZhaozyx/siyuan-embed-drawio",
+  "url": "https://github.com/YuxinZhaozyx/siyuan-embed-drawnix",
   "version": "0.5.5",
   "minAppVersion": "3.0.0",
   "disabledInPublish": true,
@@ -13,11 +13,11 @@
   ],
   "displayName": {
     "default": "「Embed Series」draw.io",
-    "zh_CN": "「嵌入式系列」draw.io"
+    "zh_CN": "「嵌入式系列」drawnix"
   },
   "description": {
-    "default": "「Embed Series」Create editable SVG/PNG Image with draw.io",
-    "zh_CN": "「嵌入式系列」使用draw.io创建可编辑的SVG/PNG图像"
+    "default": "「Embed Series」Create editable SVG/PNG Image with drawnix",
+    "zh_CN": "「嵌入式系列」使用drawnix创建可编辑的SVG/PNG图像"
   },
   "readme": {
     "default": "README.md",

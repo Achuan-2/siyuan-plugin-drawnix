@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Drawnix Embed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="assets/index.css" />
+    <style>
+        body, html, #root {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="assets/index.js"></script>
+    <script type="module">
+        let isInitialized = false;
+        let pendingInitData = null;
+
+        window.addEventListener('message', (event) => {
+            const message = event.data;
+            switch (message.type) {
+                case 'init':
+                    if (isInitialized) return;
+                    
+                    if (window.initDrawnix) {
+                        initialize(message.data);
+                    } else {
+                        pendingInitData = message.data;
+                    }
+                    break;
+                case 'export':
+                    if (window.drawnixApi) {
+                        window.drawnixApi.exportImage(message.format).then(data => {
+                            window.parent.postMessage({
+                                type: 'export',
+                                format: message.format,
+                                data: data
+                            }, '*');
+                        });
+                    }
+                    break;
+            }
+        });
+
+        function initialize(data) {
+             isInitialized = true;
+             window.initDrawnix(document.getElementById('root'), data, 
+             (newValue) => {
+                 // onChange: triggered on every change
+                 // We could implement autosave here if needed
+             },
+             (newValue) => {
+                 // onSave: triggered by explicit save action (Ctrl+S or Menu)
+                window.parent.postMessage({
+                    type: 'save',
+                    data: newValue
+                }, '*');
+            });
+        }
+
+        // Check if initDrawnix is available (it should be since this is a module script running after index.js)
+        // But just in case of async loading issues or if index.js does something async before exposing it.
+        
+        const checkInterval = setInterval(() => {
+            if (window.initDrawnix) {
+                clearInterval(checkInterval);
+                if (pendingInitData) {
+                    initialize(pendingInitData);
+                    pendingInitData = null;
+                }
+                // Notify parent we are ready
+                window.parent.postMessage({ type: 'ready' }, '*');
+            }
+        }, 100);
+        
+    </script>
+  </body>
+</html>

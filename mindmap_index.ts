@@ -3,7 +3,6 @@ import {
   Plugin,
   getFrontend,
   fetchPost,
-  fetchSyncPost,
   IWebSocketData,
   getAllEditor,
   openTab,
@@ -28,8 +27,6 @@ import {
 import { matchHotKey } from "./utils/hotkey";
 import defaultImageContent from "@/default.json";
 
-
-
 let PluginInfo = {
   version: '',
 }
@@ -44,27 +41,7 @@ const {
 
 const STORAGE_NAME = "config.json";
 
-// Type definitions
-interface DrawnixImageInfo {
-  blockID: string;
-  imageURL: string;
-  data: string; // Base64 encoded image data
-  format: 'svg' | 'png';
-  drawnixData?: string; // JSON string of drawnix board data
-}
-
-type SyFrontendTypes = 'desktop' | 'desktop-window' | 'mobile' | 'browser' | 'browser-desktop' | 'browser-mobile';
-
-interface SettingItem {
-  title: string;
-  description?: string;
-  direction?: 'row' | 'column';
-  actionElement?: HTMLElement;
-  createActionElement?: () => HTMLElement;
-}
-
-
-export default class DrawnixPlugin extends Plugin {
+export default class MindmapPlugin extends Plugin {
   // Run as mobile
   public isMobile: boolean
   // Run in browser
@@ -83,7 +60,7 @@ export default class DrawnixPlugin extends Plugin {
   private _globalKeyDownHandler;
 
   private settingItems: SettingItem[];
-  public EDIT_TAB_TYPE = "drawnix-edit-tab";
+  public EDIT_TAB_TYPE = "mindmap-edit-tab";
 
   async onload() {
     this.initMetaInfo();
@@ -94,25 +71,87 @@ export default class DrawnixPlugin extends Plugin {
 
       const imageElement = blockElement.querySelector("img") as HTMLImageElement;
       if (imageElement) {
-        const imageURL = imageElement.getAttribute("data-src");
-        this.getDrawnixImageInfo(imageURL, blockElement).then((imageInfo) => {
-          this.updateAttrLabel(imageInfo, blockElement);
-        });
+        if (blockElement.getAttribute("custom-mindmap")) {
+          const imageURL = imageElement.getAttribute("data-src");
+          this.getMindmapImageInfo(imageURL, false).then((imageInfo) => {
+            this.updateAttrLabel(imageInfo, blockElement);
+          });
+        }
       }
+    });
+
+    // Add edit button on hover for mindmap images
+    let isProcessing = false;
+    document.addEventListener('mouseover', (e) => {
+      const imgContainer = (e.target as HTMLElement).closest('[data-type="img"]') as HTMLElement;
+      if (!imgContainer || isProcessing) return;
+
+      // Check if this image has custom-mindmap attribute
+      const blockElement = imgContainer.closest("div[data-type='NodeParagraph']") as HTMLElement;
+      if (!blockElement || !blockElement.getAttribute("custom-mindmap")) return;
+
+      isProcessing = true;
+      setTimeout(() => isProcessing = false, 100);
+
+      if (imgContainer.querySelector('.cst-edit-mindmap')) return;
+
+      const action = imgContainer.querySelector('.protyle-action');
+      if (!action) return;
+
+      // Adjust original icon style
+      const actionIcon = action.querySelector('.protyle-icon');
+      if (actionIcon) {
+        (actionIcon as HTMLElement).style.borderTopLeftRadius = '0';
+        (actionIcon as HTMLElement).style.borderBottomLeftRadius = '0';
+      }
+
+      // Insert "Edit Mind Map" button
+      const editBtnHtml = `
+        <span class="protyle-icon protyle-icon--only protyle-custom cst-edit-mindmap" 
+              aria-label="编辑思维导图"
+              style="border-top-right-radius:0;border-bottom-right-radius:0;cursor:pointer;">
+          <svg class="svg"><use xlink:href="#iconEdit"></use></svg>
+        </span>`;
+      action.insertAdjacentHTML('afterbegin', editBtnHtml);
+
+      // Bind click event
+      const editBtn = imgContainer.querySelector('.cst-edit-mindmap');
+      editBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const imgElement = imgContainer.querySelector('img');
+        const imgSrc = imgElement?.getAttribute("data-src");
+        const blockID = blockElement.getAttribute("data-node-id");
+        
+        if (imgSrc && blockID) {
+          const originalOpacity = (editBtn as HTMLElement).style.opacity;
+          (editBtn as HTMLElement).style.opacity = "0.5"; // Visual feedback
+          
+          this.getMindmapImageInfo(imgSrc, true).then((imageInfo: MindmapImageInfo) => {
+            if (imageInfo) {
+              if (!this.isMobile && this.data[STORAGE_NAME].editWindow === 'tab') {
+                this.openEditTab(imageInfo, blockID);
+              } else {
+                this.openEditDialog(imageInfo, blockID);
+              }
+            }
+            (editBtn as HTMLElement).style.opacity = originalOpacity;
+          });
+        }
+      });
     });
 
     this.setupEditTab();
 
     this.protyleSlash = [{
-      filter: ["drawnix", "白板"],
-      id: "drawnix",
-      html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconImage"></use></svg><span class="b3-list-item__text">Drawnix</span></div>`,
+      filter: ["mindmap", "simple-mind-map", "simple-mindmap","思维导图"],
+      id: "mindmap",
+      html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconImage"></use></svg><span class="b3-list-item__text">MindMap</span></div>`,
       callback: (protyle, nodeElement) => {
-        this.newDrawnixImage(nodeElement.dataset.nodeId, (imageInfo) => {
+        this.newMindmapImage(nodeElement.dataset.nodeId, (imageInfo) => {
           if (!this.isMobile && this.data[STORAGE_NAME].editWindow === 'tab') {
-            this.openEditTab(imageInfo);
+            this.openEditTab(imageInfo, nodeElement.dataset.nodeId);
           } else {
-            this.openEditDialog(imageInfo);
+            this.openEditDialog(imageInfo, nodeElement.dataset.nodeId);
           }
         });
       },
@@ -132,7 +171,7 @@ export default class DrawnixPlugin extends Plugin {
     if (this._openMenuImageHandler) this.eventBus.off("open-menu-image", this._openMenuImageHandler);
     if (this._globalKeyDownHandler) document.documentElement.removeEventListener("keydown", this._globalKeyDownHandler);
     this.reloadAllEditor();
-    this.removeAllDrawnixTab();
+    this.removeAllMindmapTab();
   }
 
   uninstall() {
@@ -215,7 +254,7 @@ export default class DrawnixPlugin extends Plugin {
       this.data[STORAGE_NAME].themeMode = (dialog.element.querySelector("[data-type='themeMode']") as HTMLSelectElement).value;
       this.saveData(STORAGE_NAME, this.data[STORAGE_NAME]);
       this.reloadAllEditor();
-      this.removeAllDrawnixTab();
+      this.removeAllMindmapTab();
       dialog.destroy();
     });
   }
@@ -344,63 +383,34 @@ export default class DrawnixPlugin extends Plugin {
     return mutationObserver;
   }
 
-  public async getDrawnixImageInfo(imageURL: string, blockElement?: HTMLElement): Promise<DrawnixImageInfo | null> {
+  public async getMindmapImageInfo(imageURL: string, reload: boolean): Promise<MindmapImageInfo | null> {
     const imageURLRegex = /^assets\/.+\.(?:svg|png)$/;
     if (!imageURLRegex.test(imageURL)) return null;
 
-    let blockID = '';
-    let drawnixData = '';
-
-    if (blockElement) {
-      blockID = blockElement.getAttribute("data-node-id");
-      drawnixData = blockElement.getAttribute("custom-drawnix");
-    } else {
-      const imageElement = document.querySelector(`img[data-src="${imageURL}"]`);
-      if (imageElement) {
-        blockElement = imageElement.closest('[data-node-id]') as HTMLElement;
-        if (blockElement) {
-          blockID = blockElement.getAttribute("data-node-id");
-          drawnixData = blockElement.getAttribute("custom-drawnix");
-        }
-      }
-    }
-
-    if (!blockID) return null;
-
-    // If we didn't find drawnix data in DOM, try API (fallback)
-    if (!drawnixData) {
-      const customAttr = await this.getBlockAttrs(blockID);
-      if (customAttr) {
-        drawnixData = customAttr['custom-drawnix'];
-      }
-    }
-
-    if (!drawnixData) return null;
-
-    const imageContent = await this.getDrawnixImage(imageURL, true);
+    const imageContent = await this.getMindmapImage(imageURL, reload);
     if (!imageContent) return null;
-
-    const imageInfo: DrawnixImageInfo = {
-      blockID: blockID,
+    // 对 simple-mind-map 的图片，我们不依赖 mxfile 标记，直接返回图片信息
+    const imageInfo: MindmapImageInfo = {
       imageURL: imageURL,
       data: imageContent,
       format: imageURL.endsWith(".svg") ? "svg" : "png",
-      drawnixData: drawnixData,
     }
     return imageInfo;
   }
 
   public getPlaceholderImageContent(format: 'svg' | 'png'): string {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="270" height="183"><rect width="100%" height="100%" fill="#ffffff"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="16" fill="#888">Drawnix</text></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="270" height="183"><rect width="100%" height="100%" fill="#ffffff"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="16" fill="#888">MindMap</text></svg>`;
     const base64 = btoa(unescape(encodeURIComponent(svg)));
     if (format === 'svg') return `data:image/svg+xml;base64,${base64}`;
     // Fallback: return svg data URL even for png to ensure a valid data URL is returned
     return `data:image/svg+xml;base64,${base64}`;
   }
 
-  public newDrawnixImage(blockID: string, callback?: (imageInfo: DrawnixImageInfo) => void) {
+
+
+  public newMindmapImage(blockID: string, callback?: (imageInfo: MindmapImageInfo) => void) {
     const format = this.data[STORAGE_NAME].embedImageFormat;
-    const imageName = `drawnix-image-${window.Lute.NewNodeID()}.${format}`;
+    const imageName = `mindmap-image-${window.Lute.NewNodeID()}.${format}`;
     const placeholderImageContent = this.getPlaceholderImageContent(format);
     const blob = dataURLToBlob(placeholderImageContent);
     const file = new File([blob], imageName, { type: blob.type });
@@ -415,53 +425,39 @@ export default class DrawnixPlugin extends Plugin {
         data: `![](${imageURL})`,
         dataType: "markdown",
       });
-      const defaultDrawnixData = {
-        "type": "drawnix",
-        "version": 1,
-        "source": "web",
-        "children": [
-          {
-            "id": "QeDkz",
-            "type": "mind",
-            "data": {
-              "topic": {
-                "children": [
-                  {
-                    "text": "中心主题2"
-                  }
-                ],
-                "type": "paragraph"
-              }
+      // 初始化空思维导图到块属性
+      const initial = {
+        root: {
+          data: {
+            text: '根节点'
+          },
+          children: []
+        },
+        theme: {
+          template: 'lemonBubbles',
+          config: {
+            second: {
+              fontSize: 24,
             },
-            "children": [],
-            "layout": "right",
-            "points": [
-              [
-                119.74654114259533,
-                26.640714594298288
-              ]
-            ]
+            node: {
+              fontSize: 24,
+              borderColor: "#4D4D4D",
+              borderWidth: 2
+            }
           }
-        ],
-        "viewport": {
-          "zoom": 0.8920378279589448,
-          "origination": [
-            -345.4451339703334,
-            -273.8101350501055
-          ]
-        }
+        },
+        layout: 'logicalStructure',
+        config: {},
+        view: null
       };
-      // 将初始的 drawnix 数据写入块属性，参考 mindmap 插件的实现方式
       try {
-        fetchPost('/api/attr/setBlockAttrs', { id: blockID, attrs: { 'custom-drawnix': JSON.stringify(defaultDrawnixData) } }, () => { });
+        fetchPost('/api/attr/setBlockAttrs', { id: blockID, attrs: { 'custom-mindmap': JSON.stringify(initial) } }, () => { });
       } catch (err) { }
 
-      const imageInfo: DrawnixImageInfo = {
-        blockID: blockID,
+      const imageInfo: MindmapImageInfo = {
         imageURL: imageURL,
         data: placeholderImageContent,
         format: format,
-        drawnixData: JSON.stringify(defaultDrawnixData),
       };
       if (callback) {
         callback(imageInfo);
@@ -469,30 +465,14 @@ export default class DrawnixPlugin extends Plugin {
     });
   }
 
-  public async getDrawnixImage(imageURL: string, reload: boolean): Promise<string> {
+  public async getMindmapImage(imageURL: string, reload: boolean): Promise<string> {
     const response = await fetch(imageURL, { cache: reload ? 'reload' : 'default' });
     if (!response.ok) return "";
     const blob = await response.blob();
     return await blobToDataURL(blob);
   }
 
-
-
-  // Get block attributes
-  private async getBlockAttrs(blockId: string): Promise<any> {
-    const result = await fetchSyncPost('/api/attr/getBlockAttrs', { id: blockId });
-    return result?.data || null;
-  }
-
-  // Set custom attribute for an image
-  private async setBlockAttr(blockId: string, attrName: string, attrValue: string): Promise<void> {
-    await fetchSyncPost('/api/attr/setBlockAttrs', {
-      id: blockId,
-      attrs: { [attrName]: attrValue }
-    });
-  }
-
-  public updateDrawnixImage(imageInfo: DrawnixImageInfo, callback?: (response: IWebSocketData) => void) {
+  public updateMindmapImage(imageInfo: MindmapImageInfo, callback?: (response: IWebSocketData) => void) {
     if (!imageInfo.data) {
       imageInfo.data = this.getPlaceholderImageContent(imageInfo.format);
     }
@@ -502,31 +482,26 @@ export default class DrawnixPlugin extends Plugin {
     formData.append("path", 'data/' + imageInfo.imageURL);
     formData.append("file", file);
     formData.append("isDir", "false");
-    fetchPost("/api/file/putFile", formData, async (response) => {
-      // Save drawnix data to block attributes
-      if (imageInfo.drawnixData) {
-        await this.setBlockAttr(imageInfo.blockID, 'custom-drawnix', imageInfo.drawnixData);
-      }
-      if (callback) callback(response);
-    });
+    fetchPost("/api/file/putFile", formData, callback);
   }
 
-  public updateAttrLabel(imageInfo: DrawnixImageInfo, blockElement: HTMLElement) {
+  public updateAttrLabel(imageInfo: MindmapImageInfo, blockElement: HTMLElement) {
     if (!imageInfo) return;
 
     if (this.data[STORAGE_NAME].labelDisplay === "noLabel") return;
 
     const attrElement = blockElement.querySelector(".protyle-attr") as HTMLDivElement;
     if (attrElement) {
-      const labelHTML = `<span>Drawnix</span>`;
-      let labelElement = attrElement.querySelector(".label--embed-drawnix") as HTMLDivElement;
+      const pageCount = (base64ToUnicode(imageInfo.data.split(',').pop()).match(/name(?:=&quot;|%3D%22)/g) || []).length;
+      const labelHTML = `<span>Mind Map${pageCount > 1 ? `:${pageCount}` : ''}</span>`;
+      let labelElement = attrElement.querySelector(".label--embed-mindmap") as HTMLDivElement;
       if (labelElement) {
         labelElement.innerHTML = labelHTML;
       } else {
         labelElement = document.createElement("div");
-        labelElement.classList.add("label--embed-drawnix");
+        labelElement.classList.add("label--embed-mindmap");
         if (this.data[STORAGE_NAME].labelDisplay === "showLabelAlways") {
-          labelElement.classList.add("label--embed-drawnix--always");
+          labelElement.classList.add("label--embed-mindmap--always");
         }
         labelElement.innerHTML = labelHTML;
         attrElement.prepend(labelElement);
@@ -537,25 +512,31 @@ export default class DrawnixPlugin extends Plugin {
   private openMenuImageHandler({ detail }) {
     const selectedElement = detail.element;
     const imageElement = selectedElement.querySelector("img") as HTMLImageElement;
+    if (!imageElement) return;
     const imageURL = imageElement.dataset.src;
-    const blockElement = imageElement.closest('[data-node-id]') as HTMLElement;
-    this.getDrawnixImageInfo(imageURL, blockElement).then((imageInfo: DrawnixImageInfo) => {
-      if (imageInfo) {
-        window.siyuan.menus.menu.addItem({
-          id: "edit-drawnix",
-          icon: 'iconEdit',
-          label: `编辑 Drawnix`,
-          index: 1,
-          click: () => {
-            if (!this.isMobile && this.data[STORAGE_NAME].editWindow === 'tab') {
-              this.openEditTab(imageInfo);
-            } else {
-              this.openEditDialog(imageInfo);
+    const blockElement = selectedElement.closest("div[data-type='NodeParagraph']") as HTMLElement;
+    if (!blockElement) return;
+
+    if (blockElement.getAttribute("custom-mindmap")) {
+      const blockID = blockElement.getAttribute("data-node-id");
+      this.getMindmapImageInfo(imageURL, true).then((imageInfo: MindmapImageInfo) => {
+        if (imageInfo) {
+          window.siyuan.menus.menu.addItem({
+            id: "edit-mindmap",
+            icon: 'iconEdit',
+            label: `Edit Mind Map`,
+            index: 1,
+            click: () => {
+              if (!this.isMobile && this.data[STORAGE_NAME].editWindow === 'tab') {
+                this.openEditTab(imageInfo, blockID);
+              } else {
+                this.openEditDialog(imageInfo, blockID);
+              }
             }
-          }
-        });
-      }
-    })
+          });
+        }
+      })
+    }
   }
 
   private getActiveCustomTab(type: string): Custom {
@@ -598,7 +579,7 @@ export default class DrawnixPlugin extends Plugin {
 
   private globalKeyDownHandler = (event: KeyboardEvent) => {
     // 如果是在代码编辑器里使用快捷键，则阻止冒泡 https://github.com/YuxinZhaozyx/siyuan-embed-tikz/issues/1
-    if (document.activeElement.closest(".b3-dialog--open .drawnix-edit-dialog")) {
+    if (document.activeElement.closest(".b3-dialog--open .mindmap-edit-dialog")) {
       event.stopPropagation();
     }
 
@@ -611,11 +592,12 @@ export default class DrawnixPlugin extends Plugin {
     this.addTab({
       type: this.EDIT_TAB_TYPE,
       init() {
-        const imageInfo: DrawnixImageInfo = this.data;
+        const imageInfo: MindmapImageInfo = this.data;
+        const iframeID = unicodeToBase64(`mindmap-edit-tab-${imageInfo.imageURL}`);
         const editTabHTML = `
-<div class="drawnix-edit-tab">
-    <iframe src="/plugins/siyuan-embed-drawnix/drawnix-embed/index.html"></iframe>
-</div>`;
+    <div class="mindmap-edit-tab">
+      <iframe src="/plugins/siyuan-embed-mindmap/mind/index.html?iframeID=${iframeID}"></iframe>
+    </div>`;
         this.element.innerHTML = editTabHTML;
 
         const iframe = this.element.querySelector("iframe");
@@ -623,42 +605,102 @@ export default class DrawnixPlugin extends Plugin {
 
         const postMessage = (message: any) => {
           if (!iframe.contentWindow) return;
-          iframe.contentWindow.postMessage(message, '*');
+          iframe.contentWindow.postMessage(JSON.stringify(message), '*');
         };
 
-        const onInit = () => {
-          let data = { children: [] };
-          try {
-            if (imageInfo.drawnixData) {
-              data = JSON.parse(imageInfo.drawnixData);
+        const onInit = async (_message: any) => {
+          // Load mind map data from block attributes
+          if (imageInfo.blockID) {
+            try {
+              fetchPost('/api/attr/getBlockAttrs', { id: imageInfo.blockID }, (resp) => {
+                let mindMapData = null;
+                if (resp && resp.data && resp.data['custom-mindmap']) {
+                  try {
+                    mindMapData = JSON.parse(resp.data['custom-mindmap']);
+                  } catch (e) { mindMapData = null; }
+                }
+                postMessage({
+                  event: 'init_data',
+                  mindMapData: mindMapData,
+                  mindMapConfig: {},
+                  lang: window.siyuan.config.lang.split('_')[0] || 'zh',
+                  localConfig: null
+                });
+              });
+            } catch (err) {
+              postMessage({
+                event: 'init_data',
+                mindMapData: null,
+                mindMapConfig: {},
+                lang: window.siyuan.config.lang.split('_')[0] || 'zh',
+                localConfig: null
+              });
             }
-          } catch (e) {
-            console.error("Failed to parse drawnix data", e);
+          } else {
+            postMessage({
+              event: 'init_data',
+              mindMapData: null,
+              mindMapConfig: {},
+              lang: window.siyuan.config.lang.split('_')[0] || 'zh',
+              localConfig: null
+            });
           }
-          postMessage({
-            type: "init",
-            data: data
-          });
         }
+
+        const disableTabSwitching = () => {
+          const tabHeaders = document.querySelectorAll('.layout-tab-bar li[data-type="tab-header"]');
+          tabHeaders.forEach((header: HTMLElement) => {
+            header.style.pointerEvents = 'none';
+            header.style.opacity = '0.6';
+          });
+        };
+
+        const enableTabSwitching = () => {
+          const tabHeaders = document.querySelectorAll('.layout-tab-bar li[data-type="tab-header"]');
+          tabHeaders.forEach((header: HTMLElement) => {
+            header.style.pointerEvents = '';
+            header.style.opacity = '';
+          });
+        };
 
         const onSave = (message: any) => {
-          // Drawnix 会返回保存的数据
-          if (message.data) {
-            imageInfo.drawnixData = JSON.stringify(message.data);
+          // Save mind map data to block attributes
+          try {
+            const payload = message.data || null;
+            if (imageInfo.blockID && payload) {
+              // Disable tab switching during save to prevent SVG dimension errors
+              disableTabSwitching();
+              
+              fetchPost('/api/attr/setBlockAttrs', { 
+                id: imageInfo.blockID, 
+                attrs: { 'custom-mindmap': typeof payload === 'string' ? payload : JSON.stringify(payload) } 
+              }, (_resp) => {
+                // After saving data, export image
+                postMessage({ action: 'export_image', type: imageInfo.format });
+                // Push a notification to inform user that save succeeded only when it's a manual save (Ctrl+S)
+                try {
+                  if (message && message.via === 'manual') {
+                    fetchPost('/api/notification/pushMsg', { msg: '保存成功', timeout: 7000 }, () => {});
+                  }
+                } catch (e) {
+                  console.error('Push notification error:', e);
+                }
+              });
+            }
+          } catch (err) {
+            console.error('Save error:', err);
+            // Re-enable tab switching even if save fails
+            enableTabSwitching();
           }
-          // 请求导出图片
-          postMessage({
-            type: 'export',
-            format: imageInfo.format
-          });
         }
 
-        const onExport = (message: any) => {
-          if (message.format == imageInfo.format && message.data) {
+        const onExportSuccess = (message: any) => {
+          // Update image with exported data
+          if (message.data) {
             imageInfo.data = message.data;
+            imageInfo.data = that.fixImageContent(imageInfo.data);
 
-            that.updateDrawnixImage(imageInfo, () => {
-              // 更新页面上的图片
+            that.updateMindmapImage(imageInfo, () => {
               fetch(imageInfo.imageURL, { cache: 'reload' }).then(() => {
                 document.querySelectorAll(`img[data-src='${imageInfo.imageURL}']`).forEach(imageElement => {
                   (imageElement as HTMLImageElement).src = imageInfo.imageURL;
@@ -667,39 +709,52 @@ export default class DrawnixPlugin extends Plugin {
                     that.updateAttrLabel(imageInfo, blockElement);
                   }
                 });
+                // Re-enable tab switching after save is complete (with 300ms delay)
+                setTimeout(() => {
+                  enableTabSwitching();
+                }, 300);
+              }).catch((err) => {
+                console.error('Failed to reload image:', err);
+                // Re-enable tab switching even if reload fails
+                enableTabSwitching();
               });
             });
+          } else {
+            // Re-enable tab switching if no data
+            enableTabSwitching();
           }
         }
 
-        const onExit = (message: any) => {
+        const onExit = (_message: any) => {
           this.tab.close();
         }
 
         const messageEventHandler = (event) => {
-          // 只处理来自 iframe 的消息
-          if (event.source !== iframe.contentWindow) return;
-
-          try {
-            const message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-            if (message != null) {
-              // console.log('[Drawnix]', message.type);
-              if (message.type == "ready") {
-                onInit();
+          if (!((event.source.location.href as string).includes(`iframeID=${iframeID}`))) return;
+          if (event.data) {
+            try {
+              const message = JSON.parse(event.data);
+              if (!message) return;
+              if (message.event == 'request_data') {
+                onInit(message);
               }
-              else if (message.type == "save") {
+              else if (message.event == 'app_inited') {
+                // Mind map initialized
+                console.log('Mind map initialized in tab');
+              }
+              else if (message.event == 'save') {
                 onSave(message);
               }
-              else if (message.type == "export") {
-                onExport(message);
+              else if (message.event == 'export_success') {
+                onExportSuccess(message);
               }
-              else if (message.type == "exit") {
+              else if (message.event == 'exit') {
                 onExit(message);
               }
             }
-          }
-          catch (err) {
-            console.error(err);
+            catch (err) {
+              console.error(err);
+            }
           }
         };
 
@@ -717,7 +772,8 @@ export default class DrawnixPlugin extends Plugin {
     });
   }
 
-  public openEditTab(imageInfo: DrawnixImageInfo) {
+  public openEditTab(imageInfo: MindmapImageInfo, blockID?: string) {
+    if (blockID) imageInfo.blockID = blockID;
     openTab({
       app: this.app,
       custom: {
@@ -729,14 +785,15 @@ export default class DrawnixPlugin extends Plugin {
     })
   }
 
-  public openEditDialog(imageInfo: DrawnixImageInfo) {
-    const iframeID = unicodeToBase64(`drawnix-edit-dialog-${imageInfo.imageURL}`);
+  public openEditDialog(imageInfo: MindmapImageInfo, blockID?: string) {
+    const iframeID = unicodeToBase64(`mindmap-edit-dialog-${imageInfo.imageURL}`);
+    if (blockID) imageInfo.blockID = blockID;
     const editDialogHTML = `
-  <div class="drawnix-edit-dialog">
+  <div class="mindmap-edit-dialog">
     <div class="edit-dialog-header resize__move"></div>
     <div class="edit-dialog-container">
       <div class="edit-dialog-editor">
-        <iframe src="/plugins/siyuan-embed-drawnix/drawnix-embed/index.html?iframeID=${iframeID}"></iframe>
+        <iframe src="/plugins/siyuan-embed-mindmap/mind/index.html?iframeID=${iframeID}"></iframe>
       </div>
       <div class="fn__hr--b"></div>
     </div>
@@ -760,102 +817,105 @@ export default class DrawnixPlugin extends Plugin {
 
     const postMessage = (message: any) => {
       if (!iframe.contentWindow) return;
-      iframe.contentWindow.postMessage(message, '*');
+      iframe.contentWindow.postMessage(JSON.stringify(message), '*');
     };
 
-    const onInit = () => {
-      let data = { children: [] };
-      try {
-        if (imageInfo.drawnixData) {
-          data = JSON.parse(imageInfo.drawnixData);
+    // 在 simple-mind-map 中，我们通过块属性保存/读取思维导图 JSON
+    const onInit = async (_message: any) => {
+      // Load mind map data from block attributes
+      if (imageInfo.blockID) {
+        try {
+          fetchPost('/api/attr/getBlockAttrs', { id: imageInfo.blockID }, (resp) => {
+            let mindMapData = null;
+            if (resp && resp.data && resp.data['custom-mindmap']) {
+              try {
+                mindMapData = JSON.parse(resp.data['custom-mindmap']);
+              } catch (e) { mindMapData = null; }
+            }
+            postMessage({
+              event: 'init_data',
+              mindMapData: mindMapData,
+              mindMapConfig: {},
+              lang: window.siyuan.config.lang.split('_')[0] || 'zh',
+              localConfig: null
+            });
+          });
+        } catch (err) {
+          postMessage({
+            event: 'init_data',
+            mindMapData: null,
+            mindMapConfig: {},
+            lang: window.siyuan.config.lang.split('_')[0] || 'zh',
+            localConfig: null
+          });
         }
-      } catch (e) {
-        console.error("Failed to parse drawnix data", e);
+      } else {
+        postMessage({
+          event: 'init_data',
+          mindMapData: null,
+          mindMapConfig: {},
+          lang: window.siyuan.config.lang.split('_')[0] || 'zh',
+          localConfig: null
+        });
       }
-      postMessage({
-        type: "init",
-        data: data,
-        autosave: 1,
-        modified: 'unsavedChanges',
-        title: this.isMobile ? '' : imageInfo.imageURL,
+    }
+
+
+
+    const disableTabSwitching = () => {
+      const tabHeaders = document.querySelectorAll('.layout-tab-bar li[data-type="tab-header"]');
+      tabHeaders.forEach((header: HTMLElement) => {
+        header.style.pointerEvents = 'none';
+        header.style.opacity = '0.6';
       });
-    }
-
-    let isFullscreen = false;
-    let dialogContainerStyle = {
-      width: "100vw",
-      height: "100vh",
-      maxWidth: "unset",
-      maxHeight: "unset",
-      top: "auto",
-      left: "auto",
     };
-    const fullscreenOnLogo = '<svg t="1763089104127" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="5274" width="24" height="24"><path d="M149.333333 394.666667c17.066667 0 32-14.933333 32-32v-136.533334l187.733334 187.733334c6.4 6.4 14.933333 8.533333 23.466666 8.533333s17.066667-2.133333 23.466667-8.533333c12.8-12.8 12.8-32 0-44.8l-187.733333-187.733334H362.666667c17.066667 0 32-14.933333 32-32s-14.933333-32-32-32H149.333333c-4.266667 0-8.533333 0-10.666666 2.133334-8.533333 4.266667-14.933333 10.666667-19.2 17.066666-2.133333 4.266667-2.133333 8.533333-2.133334 12.8v213.333334c0 17.066667 14.933333 32 32 32zM874.666667 629.333333c-17.066667 0-32 14.933333-32 32v136.533334L642.133333 597.333333c-12.8-12.8-32-12.8-44.8 0s-12.8 32 0 44.8l200.533334 200.533334H661.333333c-17.066667 0-32 14.933333-32 32s14.933333 32 32 32h213.333334c4.266667 0 8.533333 0 10.666666-2.133334 8.533333-4.266667 14.933333-8.533333 17.066667-17.066666 2.133333-4.266667 2.133333-8.533333 2.133333-10.666667V661.333333c2.133333-17.066667-12.8-32-29.866666-32zM381.866667 595.2l-200.533334 200.533333V661.333333c0-17.066667-14.933333-32-32-32s-32 14.933333-32 32v213.333334c0 4.266667 0 8.533333 2.133334 10.666666 4.266667 8.533333 8.533333 14.933333 17.066666 17.066667 4.266667 2.133333 8.533333 2.133333 10.666667 2.133333h213.333333c17.066667 0 32-14.933333 32-32s-14.933333-32-32-32h-136.533333l200.533333-200.533333c12.8-12.8 12.8-32 0-44.8s-29.866667-10.666667-42.666666 0zM904.533333 138.666667c0-2.133333 0-2.133333 0 0-4.266667-8.533333-10.666667-14.933333-17.066666-17.066667-4.266667-2.133333-8.533333-2.133333-10.666667-2.133333H661.333333c-17.066667 0-32 14.933333-32 32s14.933333 32 32 32h136.533334l-187.733334 187.733333c-12.8 12.8-12.8 32 0 44.8 6.4 6.4 14.933333 8.533333 23.466667 8.533333s17.066667-2.133333 23.466667-8.533333l187.733333-187.733333V362.666667c0 17.066667 14.933333 32 32 32s32-14.933333 32-32V149.333333c-2.133333-4.266667-2.133333-8.533333-4.266667-10.666666z" fill="#666666" p-id="5275"></path></svg>';
-    const fullscreenOffLogo = '<svg t="1763089178999" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="5443" width="24" height="24"><path d="M313.6 358.4H177.066667c-17.066667 0-32 14.933333-32 32s14.933333 32 32 32h213.333333c4.266667 0 8.533333 0 10.666667-2.133333 8.533333-4.266667 14.933333-8.533333 17.066666-17.066667 2.133333-4.266667 2.133333-8.533333 2.133334-10.666667v-213.333333c0-17.066667-14.933333-32-32-32s-32 14.933333-32 32v136.533333L172.8 125.866667c-12.8-12.8-32-12.8-44.8 0-12.8 12.8-12.8 32 0 44.8l185.6 187.733333zM695.466667 650.666667H832c17.066667 0 32-14.933333 32-32s-14.933333-32-32-32H618.666667c-4.266667 0-8.533333 0-10.666667 2.133333-8.533333 4.266667-14.933333 8.533333-17.066667 17.066667-2.133333 4.266667-2.133333 8.533333-2.133333 10.666666v213.333334c0 17.066667 14.933333 32 32 32s32-14.933333 32-32v-136.533334l200.533333 200.533334c6.4 6.4 14.933333 8.533333 23.466667 8.533333s17.066667-2.133333 23.466667-8.533333c12.8-12.8 12.8-32 0-44.8l-204.8-198.4zM435.2 605.866667c-4.266667-8.533333-8.533333-14.933333-17.066667-17.066667-4.266667-2.133333-8.533333-2.133333-10.666666-2.133333H192c-17.066667 0-32 14.933333-32 32s14.933333 32 32 32h136.533333L128 851.2c-12.8 12.8-12.8 32 0 44.8 6.4 6.4 14.933333 8.533333 23.466667 8.533333s17.066667-2.133333 23.466666-8.533333l200.533334-200.533333V832c0 17.066667 14.933333 32 32 32s32-14.933333 32-32V618.666667c-2.133333-4.266667-2.133333-8.533333-4.266667-12.8zM603.733333 403.2c4.266667 8.533333 8.533333 14.933333 17.066667 17.066667 4.266667 2.133333 8.533333 2.133333 10.666667 2.133333h213.333333c17.066667 0 32-14.933333 32-32s-14.933333-32-32-32h-136.533333L896 170.666667c12.8-12.8 12.8-32 0-44.8-12.8-12.8-32-12.8-44.8 0l-187.733333 187.733333V177.066667c0-17.066667-14.933333-32-32-32s-32 14.933333-32 32v213.333333c2.133333 4.266667 2.133333 8.533333 4.266666 12.8z" fill="#666666" p-id="5444"></path></svg>';
-    const switchFullscreen = () => {
-      const dialogContainerElement = dialog.element.querySelector('.b3-dialog__container') as HTMLElement;
-      if (dialogContainerElement) {
-        isFullscreen = !isFullscreen;
-        if (isFullscreen) {
-          dialogContainerStyle.width = dialogContainerElement.style.width;
-          dialogContainerStyle.height = dialogContainerElement.style.height;
-          dialogContainerStyle.maxWidth = dialogContainerElement.style.maxWidth;
-          dialogContainerStyle.maxHeight = dialogContainerElement.style.maxHeight;
-          dialogContainerStyle.top = dialogContainerElement.style.top;
-          dialogContainerStyle.left = dialogContainerElement.style.left;
-          dialogContainerElement.style.width = "100vw";
-          dialogContainerElement.style.height = "100vh";
-          dialogContainerElement.style.maxWidth = "unset";
-          dialogContainerElement.style.maxHeight = "unset";
-          dialogContainerElement.style.top = "0";
-          dialogContainerElement.style.left = "0";
-        } else {
-          dialogContainerElement.style.width = dialogContainerStyle.width;
-          dialogContainerElement.style.height = dialogContainerStyle.height;
-          dialogContainerElement.style.maxWidth = dialogContainerStyle.maxWidth;
-          dialogContainerElement.style.maxHeight = dialogContainerStyle.maxHeight;
-          dialogContainerElement.style.top = dialogContainerStyle.top;
-          dialogContainerElement.style.left = dialogContainerStyle.left;
-        }
-        const fullscreenButton = iframe.contentDocument.querySelector('.customFullscreenButton') as HTMLElement;
-        if (fullscreenButton) fullscreenButton.innerHTML = isFullscreen ? fullscreenOffLogo : fullscreenOnLogo;
-      }
-    }
 
-    const onLoad = (message: any) => {
-      const toolbarElement = iframe.contentDocument.querySelector(".geToolbarContainer .geToolbarEnd");
-      if (toolbarElement) {
-        const fullscreenButton = HTMLToElement(`<a class="geButton customFullscreenButton"></a>`);
-        fullscreenButton.innerHTML = fullscreenOnLogo;
-        toolbarElement.prepend(fullscreenButton);
-        fullscreenButton.addEventListener('click', switchFullscreen);
-      }
-      if (this.data[STORAGE_NAME].fullscreenEdit) {
-        switchFullscreen();
-      }
-    }
+    const enableTabSwitching = () => {
+      const tabHeaders = document.querySelectorAll('.layout-tab-bar li[data-type="tab-header"]');
+      tabHeaders.forEach((header: HTMLElement) => {
+        header.style.pointerEvents = '';
+        header.style.opacity = '';
+      });
+    };
 
     const onSave = (message: any) => {
-      if (message.data) {
-        imageInfo.drawnixData = JSON.stringify(message.data);
+      // Save mind map data to block attributes
+      try {
+        const payload = message.data || null;
+        if (imageInfo.blockID && payload) {
+          // Disable tab switching during save to prevent SVG dimension errors
+          disableTabSwitching();
+          
+          fetchPost('/api/attr/setBlockAttrs', { 
+            id: imageInfo.blockID, 
+            attrs: { 'custom-mindmap': typeof payload === 'string' ? payload : JSON.stringify(payload) } 
+          }, (_resp) => {
+            // After saving data, export image
+            postMessage({ action: 'export_image', type: imageInfo.format });
+            // Push a notification to inform user that save succeeded only when it's a manual save (Ctrl+S)
+            try {
+              if (message && message.via === 'manual') {
+                fetchPost('/api/notification/pushMsg', { msg: '保存成功', timeout: 7000 }, () => {});
+              }
+            } catch (e) {
+              console.error('Push notification error:', e);
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Save error:', err);
+        // Re-enable tab switching even if save fails
+        enableTabSwitching();
       }
-      postMessage({
-        type: 'export',
-        format: imageInfo.format,
-      });
     }
 
-    const onExport = (message: any) => {
-      if (message.format == imageInfo.format && message.data) {
+    const onExportSuccess = (message: any) => {
+      // Update image with exported data
+      if (message.data) {
         imageInfo.data = message.data;
         imageInfo.data = this.fixImageContent(imageInfo.data);
 
-        this.updateDrawnixImage(imageInfo, () => {
-          postMessage({
-            action: 'status',
-            messageKey: 'allChangesSaved',
-            modified: false
-          });
+        this.updateMindmapImage(imageInfo, () => {
           fetch(imageInfo.imageURL, { cache: 'reload' }).then(() => {
             document.querySelectorAll(`img[data-src='${imageInfo.imageURL}']`).forEach(imageElement => {
               (imageElement as HTMLImageElement).src = imageInfo.imageURL;
@@ -864,46 +924,52 @@ export default class DrawnixPlugin extends Plugin {
                 this.updateAttrLabel(imageInfo, blockElement);
               }
             });
+            // Re-enable tab switching after save is complete (with 300ms delay)
+            setTimeout(() => {
+              enableTabSwitching();
+            }, 300);
+          }).catch((err) => {
+            console.error('Failed to reload image:', err);
+            // Re-enable tab switching even if reload fails
+            enableTabSwitching();
           });
         });
+      } else {
+        // Re-enable tab switching if no data
+        enableTabSwitching();
       }
     }
 
-    const onExit = (message: any) => {
+    const onExit = (_message: any) => {
       dialog.destroy();
     }
 
     const messageEventHandler = (event) => {
-      // Check source (optional, but good practice if we can verify iframeID)
-      // if (!((event.source.location.href as string).includes(`iframeID=${iframeID}`))) return; 
-      // Note: event.source.location might be restricted by cross-origin policy if domains differ, 
-      // but here it's same origin (plugin). 
-      // However, checking event.source against iframe.contentWindow is safer.
-      if (event.source !== iframe.contentWindow) return;
-
-      try {
-        const message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        if (message != null) {
-          // console.log(message.type);
-          if (message.type == "ready") {
-            onInit();
+      if (!((event.source.location.href as string).includes(`iframeID=${iframeID}`))) return;
+      if (event.data) {
+        try {
+          const message = JSON.parse(event.data);
+          if (!message) return;
+          if (message.event == 'request_data') {
+            onInit(message);
           }
-          else if (message.type == "load") {
-            onLoad(message);
+          else if (message.event == 'app_inited') {
+            // Mind map initialized
+            console.log('Mind map initialized in dialog');
           }
-          else if (message.type == "save" || message.type == "autosave") {
+          else if (message.event == 'save') {
             onSave(message);
           }
-          else if (message.type == "export") {
-            onExport(message);
+          else if (message.event == 'export_success') {
+            onExportSuccess(message);
           }
-          else if (message.type == "exit") {
+          else if (message.event == 'exit') {
             onExit(message);
           }
         }
-      }
-      catch (err) {
-        console.error(err);
+        catch (err) {
+          console.error(err);
+        }
       }
     };
 
@@ -914,12 +980,11 @@ export default class DrawnixPlugin extends Plugin {
   }
 
 
-
   public reloadAllEditor() {
     getAllEditor().forEach((protyle) => { protyle.reload(false); });
   }
 
-  public removeAllDrawnixTab() {
+  public removeAllMindmapTab() {
     getAllModels().custom.forEach((custom: any) => {
       if (custom.type == this.name + this.EDIT_TAB_TYPE) {
         custom.tab?.close();

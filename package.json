@@ -1,21 +1,21 @@
 {
-  "name": "siyuan-embed-drawio",
-  "version": "0.5.5",
+  "name": "siyuan-embed-drawnix",
+  "version": "0.1.0",
   "type": "module",
-  "description": "This is a plugin for siyuan",
+  "description": "Embed Drawnix whiteboard in SiYuan Notes",
   "author": "",
   "license": "MIT",
   "homepage": "",
   "repository": "",
   "scripts": {
     "dev": "vite build --watch",
-    "prepare:draw": "curl -L -o draw.war https://github.com/jgraph/drawio/releases/download/v28.2.9/draw.war --ssl-no-revoke && unzip draw.war -d draw",
+    "prepare:drawnix": "cd drawnix && npm install && npm run build:web && cd .. && mkdir -p drawnix-embed/assets && cp -r drawnix/dist/apps/web/assets/* drawnix-embed/assets/",
     "release": "node ./release.js",
     "release:manual": "node ./release.js --mode=manual",
     "release:patch": "node ./release.js --mode=patch",
     "release:minor": "node ./release.js --mode=minor",
     "release:major": "node ./release.js --mode=major",
-    "build": "pnpm prepare:draw && vite build"
+    "build": "vite build"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^4.8.1",
