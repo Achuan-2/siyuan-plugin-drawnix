@@ -1,8 +1,8 @@
 {
   "name": "siyuan-embed-drawnix",
-  "author": "Yuxin Zhao",
-  "url": "https://github.com/YuxinZhaozyx/siyuan-embed-drawnix",
-  "version": "0.5.5",
+  "author": "Achuan-2",
+  "url": "https://github.com/Achuan-2/siyuan-embed-drawnix",
+  "version": "0.0.1",
   "minAppVersion": "3.0.0",
   "disabledInPublish": true,
   "backends": [
