@@ -1,6 +1,6 @@
 ## 📖 使用
 
-输入 `/drawnix`​或`/白板`​或`/思维导图`，会自动创建图片并打开 Drawnix 进行创作，编辑完成后，自动保存为图片格式（SVG/PNG），支持二次编辑。
+输入 `/drawnix`​或`/白板`​或`/思维导图`，会自动创建图片并打开 Drawnix 进行创作，编辑完成后，按Ctrl+S会自动保存为图片格式（SVG/PNG），支持二次编辑。
 
 <img alt="image" src="https://fastly.jsdelivr.net/gh/Achuan-2/PicBed@pic/assets/image-20251204211359-0dgyxrh.png" />
 
