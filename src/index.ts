@@ -113,7 +113,7 @@ export default class DrawnixPlugin extends Plugin {
     this.setupEditTab();
 
     this.protyleSlash = [{
-      filter: ["drawnix", "白板"],
+      filter: ["drawnix", "白板","思维导图"],
       id: "drawnix",
       html: `<div class="b3-list-item__first"><svg class="b3-list-item__graphic"><use xlink:href="#iconImage"></use></svg><span class="b3-list-item__text">Drawnix</span></div>`,
       callback: (protyle, nodeElement) => {
