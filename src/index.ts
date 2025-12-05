@@ -235,7 +235,7 @@ export default class DrawnixPlugin extends Plugin {
     await this.loadData(STORAGE_NAME);
     if (!this.data[STORAGE_NAME]) this.data[STORAGE_NAME] = {};
     if (typeof this.data[STORAGE_NAME].labelDisplay === 'undefined') this.data[STORAGE_NAME].labelDisplay = "showLabelAlways";
-    if (typeof this.data[STORAGE_NAME].embedImageFormat === 'undefined') this.data[STORAGE_NAME].embedImageFormat = "svg";
+    if (typeof this.data[STORAGE_NAME].embedImageFormat === 'undefined') this.data[STORAGE_NAME].embedImageFormat = "png";
     if (typeof this.data[STORAGE_NAME].editWindow === 'undefined') this.data[STORAGE_NAME].editWindow = 'tab';
 
     this.settingItems = [
