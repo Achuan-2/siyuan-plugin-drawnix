@@ -848,9 +848,8 @@ export default class DrawnixPlugin extends Plugin {
       },
     });
 
-    // 在对话框右上角添加“在标签页打开”按钮
+    // 在对话框右上角添加“在标签页打开”按钮，点击则放弃保存并直接在新标签打开编辑器
     const headerElement = dialog.element.querySelector('.edit-dialog-header') as HTMLElement;
-    let openTabAfterSave = false;
     if (headerElement) {
       const openInTabBtn = document.createElement('button');
       openInTabBtn.className = 'b3-button b3-button--text open-in-tab-btn';
@@ -860,16 +859,25 @@ export default class DrawnixPlugin extends Plugin {
       headerElement.appendChild(openInTabBtn);
 
       openInTabBtn.addEventListener('click', () => {
-        // 标记为在保存完成后打开标签页，并请求 iframe 保存（iframe 会回发 save 和 export）
-        openTabAfterSave = true;
-        openInTabBtn.disabled = true;
-        openInTabBtn.textContent = '正在打开...';
+        // 直接在标签页打开，不等待保存（视为放弃对话框中的未保存改动）
         try {
-          if (iframe.contentWindow) {
-            iframe.contentWindow.postMessage(JSON.stringify({ type: 'save' }), '*');
-          }
+          openTab({
+            app: this.app,
+            custom: {
+              id: this.name + this.EDIT_TAB_TYPE,
+              icon: "iconEdit",
+              title: `${imageInfo.imageURL.split('/').pop()}`,
+              data: imageInfo,
+            }
+          });
         } catch (err) {
-          console.error('请求 iframe 保存失败', err);
+          console.error('打开标签页失败', err);
+        }
+        // 关闭对话框（放弃保存）
+        try {
+          dialog.destroy();
+        } catch (err) {
+          console.error('关闭对话框失败', err);
         }
       });
     }
@@ -1017,24 +1025,7 @@ export default class DrawnixPlugin extends Plugin {
                 this.updateAttrLabel(imageInfo, blockElement);
               }
             });
-            // 如果是通过“在标签页打开”触发，则在保存并更新图片后打开标签页并关闭对话框
-            try {
-              if (openTabAfterSave) {
-                openTab({
-                  app: this.app,
-                  custom: {
-                    id: this.name + this.EDIT_TAB_TYPE,
-                    icon: "iconEdit",
-                    title: `${imageInfo.imageURL.split('/').pop()}`,
-                    data: imageInfo,
-                  }
-                });
-                openTabAfterSave = false;
-                dialog.destroy();
-              }
-            } catch (err) {
-              console.error('打开标签页失败', err);
-            }
+            // (已改为立即打开标签页 — 不在这里处理)
           });
         });
       }
