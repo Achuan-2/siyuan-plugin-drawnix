@@ -2,7 +2,7 @@
   "name": "siyuan-plugin-drawnix",
   "author": "Achuan-2",
   "url": "https://github.com/Achuan-2/siyuan-plugin-drawnix",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "minAppVersion": "3.0.0",
   "disabledInPublish": true,
   "backends": [
